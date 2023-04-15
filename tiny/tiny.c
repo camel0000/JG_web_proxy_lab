@@ -152,8 +152,10 @@ int parse_uri(char *uri, char *filename, char *cgiargs) {
         strcat(filename, uri);                            //line:netp:parseuri:endconvert1
 
         // uri 문자열 끝이 /일 경우, home.html을 filename에 붙임
-        if (uri[strlen(uri)-1] == '/')                    //line:netp:parseuri:slashcheck
+        if (uri[strlen(uri) - 1] == '/')                    //line:netp:parseuri:slashcheck
             strcat(filename, "home.html");                //line:netp:parseuri:appenddefault
+        if (strstr(uri, "/mp4"))
+            strcpy(filename, "go.mp4");
         return 1;
     }
     /* Dynamic content */
@@ -196,10 +198,13 @@ void serve_static(int fd, char *filename, int filesize) {
 
     /* Send response body to client */
     srcfd = Open(filename, O_RDONLY, 0); //line:netp:servestatic:open
-    srcp = Mmap(0, filesize, PROT_READ, MAP_PRIVATE, srcfd, 0); //line:netp:servestatic:mmap
+    // srcp = Mmap(0, filesize, PROT_READ, MAP_PRIVATE, srcfd, 0); //line:netp:servestatic:mmap
+    srcp = Malloc(filesize);
+    Rio_readn(srcfd, srcp, filesize);
     Close(srcfd);                       //line:netp:servestatic:close
     Rio_writen(fd, srcp, filesize);     //line:netp:servestatic:write
-    Munmap(srcp, filesize);             //line:netp:servestatic:munmap
+    // Munmap(srcp, filesize);             //line:netp:servestatic:munmap
+    Free(srcp);
 }
 
 /*
