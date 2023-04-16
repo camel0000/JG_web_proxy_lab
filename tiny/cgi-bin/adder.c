@@ -7,7 +7,7 @@
 int main(void) {
     char *buf, *p;
     char arg1[MAXLINE], arg2[MAXLINE], content[MAXLINE];
-    int n1=0, n2=0;
+    int n1 = 0, n2 = 0;
 
     /* Extract the two arguments */
     if ((buf = getenv("QUERY_STRING")) != NULL) {
@@ -31,6 +31,7 @@ int main(void) {
     printf("Content-length: %d\r\n", (int)strlen(content));
     printf("Content-type: text/html\r\n\r\n");
     printf("%s", content);
+
     fflush(stdout);
 
     exit(0);
