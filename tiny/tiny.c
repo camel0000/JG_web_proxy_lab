@@ -11,7 +11,7 @@
 void doit(int fd);
 void read_requesthdrs(rio_t *rp);
 int parse_uri(char *uri, char *filename, char *cgiargs);
-void serve_static(int fd, char *filename, int filesize);
+void serve_static(int fd, char *filename, int filesize, char *method);
 void get_filetype(char *filename, char *filetype);
 void serve_dynamic(int fd, char *filename, char *cgiargs, char *method);
 void clienterror(int fd, char *cause, char *errnum, char *shortmsg, char *longmsg);
@@ -25,8 +25,8 @@ int main(int argc, char **argv) {   // 첫 매개변수 argc는 옵션의 개수
 
     /* Check command line args */
     if (argc != 2) {
-	      fprintf(stderr, "usage: %s <port>\n", argv[0]);
-	      exit(1);
+	    fprintf(stderr, "usage: %s <port>\n", argv[0]);
+	    exit(1);
     }
 
     /* Open_listenfd 함수 호출 -> 듣기 식별자 오픈, 인자를 통해 port번호 넘김 */
@@ -34,11 +34,11 @@ int main(int argc, char **argv) {   // 첫 매개변수 argc는 옵션의 개수
 
     /* 무한 서버 루프 실행 */
     while (1) {
-	      clientlen = sizeof(clientaddr);                             // accept 함수 인자에 넣기 위한 주소 길이 계산
+	    clientlen = sizeof(clientaddr);                             // accept 함수 인자에 넣기 위한 주소 길이 계산
 
         /* 반복적 연결 요청 접수 */
         // Accept(듣기 식별자, 소켓 주소 구조체 주소, 해당 주소 길이)
-	      connfd = Accept(listenfd, (SA *)&clientaddr, &clientlen);
+	    connfd = Accept(listenfd, (SA *)&clientaddr, &clientlen);
 
         // Getaddrinfo => 호스트 이름: 호스트 주소, 서비스 이름: 포트 번호의 스트링 표시를 소켓 주소 구조체로 변환
         // Getnameinfo => 위의 Getaddrinfo의 반대로, 소켓 주소 구조체 -> 스트링 표시로 변환
@@ -46,7 +46,7 @@ int main(int argc, char **argv) {   // 첫 매개변수 argc는 옵션의 개수
         printf("Accepted connection from (%s, %s)\n", hostname, port);
         
         /* 트랜잭션 수행 */
-	      doit(connfd);
+	    doit(connfd);
 	      /* 트랜잭션이 수행된 후, 자신 쪽의 연결 끝(소켓)을 닫음*/
         Close(connfd);
     }
@@ -75,20 +75,21 @@ void doit(int fd) {
     printf("%s", buf);                                    // "GET / HTTP/1.1 "
     sscanf(buf, "%s %s %s", method, uri, version);        // 버퍼에서 자료형 읽고, 분석
 
-    if (strcasecmp(method, "GET")) {
+    if (!(strcasecmp(method, "GET") == 0 || strcasecmp(method, "HEAD") == 0)) { // method가 GET도 아니고 HEAD도 아닌경우 -> 501 ERROR
         clienterror(fd, method, "501", "Not Implemented", "Tiny does not implement this method");
         return;
     }
 
-    /* GET method라면 읽어들이고, 다른 요청 헤더 무시 */
+    /* GET 혹은 HEAD method라면 읽어들이고, 다른 요청 헤더 무시 */
     read_requesthdrs(&rio);
 
     /* Parse URI from GET request */
     /* URI를 filename과 비어 있을 수도 있는 CGI 인자 스트링으로 분석 -> 요청이 정적 또는 동적 컨텐츠를 위한 것인지 나타내는 플래그 설정 */
     is_static = parse_uri(uri, filename, cgiargs);
+
     if (stat(filename, &sbuf) < 0) {
-	      clienterror(fd, filename, "404", "Not found", "Tiny couldn't find this file");
-	      return;
+	    clienterror(fd, filename, "404", "Not found", "Tiny couldn't find this file");
+	    return;
     }
 
     /* Serve static content */
@@ -100,7 +101,7 @@ void doit(int fd) {
             return;
         }
         // 일반 파일이며, 권한 있음 -> 파일 제공
-	      serve_static(fd, filename, sbuf.st_size);
+	    serve_static(fd, filename, sbuf.st_size, method);
     }
     /* Serve dynamic content */
     else {
@@ -153,6 +154,11 @@ int parse_uri(char *uri, char *filename, char *cgiargs) {
 
         // uri 문자열 끝이 /일 경우, home.html을 filename에 붙임
         if (uri[strlen(uri) - 1] == '/')
+            /*
+                uri : /home.html
+                cgiargs : 
+                filename : ./home.html
+            */
             strcat(filename, "home.html");
         if (strstr(uri, "/mp4"))
             strcpy(filename, "go.mp4");
@@ -160,6 +166,11 @@ int parse_uri(char *uri, char *filename, char *cgiargs) {
     }
     /* Dynamic content */
     else {
+        /*
+            uri : /cgi-bin/adder?123&321
+            cgiargs : 
+            filename : ./cgi-bin/adder
+        */
         // uri 예시: dynamic: /cgi-bin/adder?first=1213&second
         ptr = index(uri, '?');                            // index() -> 문자열에서 특정 문자의 위치 반환
         // CGI 인자 추출
@@ -181,7 +192,7 @@ int parse_uri(char *uri, char *filename, char *cgiargs) {
  * serve_static - copy a file back to the client 
  */
 /* $begin serve_static */
-void serve_static(int fd, char *filename, int filesize) {
+void serve_static(int fd, char *filename, int filesize, char *method) {
     int srcfd;
     char *srcp, filetype[MAXLINE], buf[MAXBUF];
 
@@ -196,15 +207,17 @@ void serve_static(int fd, char *filename, int filesize) {
     sprintf(buf, "Content-type: %s\r\n\r\n", filetype);
     Rio_writen(fd, buf, strlen(buf));
 
-    /* Send response body to client */
-    srcfd = Open(filename, O_RDONLY, 0);
-    // srcp = Mmap(0, filesize, PROT_READ, MAP_PRIVATE, srcfd, 0);
-    srcp = Malloc(filesize);
-    Rio_readn(srcfd, srcp, filesize);
-    Close(srcfd);
-    Rio_writen(fd, srcp, filesize);
-    // Munmap(srcp, filesize);
-    Free(srcp);
+    if (strcasecmp(method, "GET") == 0) {
+        /* Send response body to client */
+        srcfd = Open(filename, O_RDONLY, 0);
+        // srcp = Mmap(0, filesize, PROT_READ, MAP_PRIVATE, srcfd, 0);
+        srcp = Malloc(filesize);
+        Rio_readn(srcfd, srcp, filesize);
+        Close(srcfd);
+        Rio_writen(fd, srcp, filesize);
+        // Munmap(srcp, filesize);
+        Free(srcp);
+    }
 }
 
 /*
@@ -212,17 +225,17 @@ void serve_static(int fd, char *filename, int filesize) {
  */
 void get_filetype(char *filename, char *filetype) {
     if (strstr(filename, ".html"))
-	      strcpy(filetype, "text/html");
+	    strcpy(filetype, "text/html");
     else if (strstr(filename, ".gif"))
-	      strcpy(filetype, "image/gif");
+	     strcpy(filetype, "image/gif");
     else if (strstr(filename, ".png"))
-	      strcpy(filetype, "image/png");
+	    strcpy(filetype, "image/png");
     else if (strstr(filename, ".jpg"))
-	      strcpy(filetype, "image/jpeg");
+	    strcpy(filetype, "image/jpeg");
     else if (strstr(filename, ".mp4"))
         strcpy(filetype, "video/mp4");    // Tiny 서버가 video type의 파일을 처리하도록 함
     else
-	      strcpy(filetype, "text/plain");
+	    strcpy(filetype, "text/plain");
 }  
 /* $end serve_static */
 
@@ -247,6 +260,7 @@ void serve_dynamic(int fd, char *filename, char *cgiargs, char *method) { // cgi
         // setenv : QUERY_STRING 환경변수를 요청 URI의 CGI 인자들로 초기화
         // QUERY_STRING="cgiargs가 가리키는 uri"
         setenv("QUERY_STRING", cgiargs, 1);
+        // method를 cgi-bin/adder.c로 넘겨주기 위한 환경변수 setting
         setenv("REQUEST_METHOD", method, 1);
 
         // dup2 : clientfd 출력을 CGI 프로그램 표준 출력과 연결
