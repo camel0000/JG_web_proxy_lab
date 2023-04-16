@@ -19,8 +19,8 @@ int main(int argc, char **argv) {   // 첫 매개변수 argc는 옵션의 개수
 
     /* Check command line args */
     if (argc != 2) {
-	    fprintf(stderr, "usage: %s <port>\n", argv[0]);
-	    exit(1);
+	      fprintf(stderr, "usage: %s <port>\n", argv[0]);
+	      exit(1);
     }
 
     /* Open_listenfd 함수 호출 -> 듣기 식별자 오픈, 인자를 통해 port번호 넘김 */
@@ -28,11 +28,11 @@ int main(int argc, char **argv) {   // 첫 매개변수 argc는 옵션의 개수
 
     /* 무한 서버 루프 실행 */
     while (1) {
-	    clientlen = sizeof(clientaddr);                             // accept 함수 인자에 넣기 위한 주소 길이 계산
+        clientlen = sizeof(clientaddr);                             // accept 함수 인자에 넣기 위한 주소 길이 계산
 
         /* 반복적 연결 요청 접수 */
         // Accept(듣기 식별자, 소켓 주소 구조체 주소, 해당 주소 길이)
-	    connfd = Accept(listenfd, (SA *)&clientaddr, &clientlen);
+        connfd = Accept(listenfd, (SA *)&clientaddr, &clientlen);
 
         // Getaddrinfo => 호스트 이름: 호스트 주소, 서비스 이름: 포트 번호의 스트링 표시를 소켓 주소 구조체로 변환
         // Getnameinfo => 위의 Getaddrinfo의 반대로, 소켓 주소 구조체 -> 스트링 표시로 변환
@@ -40,20 +40,39 @@ int main(int argc, char **argv) {   // 첫 매개변수 argc는 옵션의 개수
         printf("Accepted connection from (%s, %s)\n", hostname, port);
         
         /* 트랜잭션 수행 */
-	    doit(connfd);
-	      /* 트랜잭션이 수행된 후, 자신 쪽의 연결 끝(소켓)을 닫음*/
+        doit(connfd);
+        /* 트랜잭션이 수행된 후, 자신 쪽의 연결 끝(소켓)을 닫음 */
         Close(connfd);
     }
 }
 
 void doit(int fd) {
-  char host, port;
-  int proxyfd;
-  rio_t rio_client, rio;
+    // doit 호출 -> main에서 연결이 되었고, request를 accept한 대로 transaction 수행을 해야한다는 것
+    char host, port;
+    int proxyfd;
+    rio_t rio_client, rio;
 
-  host = "localhost";
-  port = "3000";
-  proxyfd = Open_clientfd(host, port);  // new socket open
-  Rio_readinitb(&rio_client, fd);
-  Rio_readinitb(&rio, proxyfd);
+    host = "localhost";
+    port = "3000";
+
+    proxyfd = Open_clientfd(host, port);  // new socket open
+    
+    Rio_readinitb(&rio_client, fd);       // 클라이언트 용 버퍼에 연결 fd 연결
+    Rio_readinitb(&rio, proxyfd);         // 읽기 버퍼에 proxy fd 연결
+
+    // *** request 전체 내용 읽고
+    
+    
+    // *** request를 파싱 (-> static or dynamic 결정)
+
+
+    // *** client가 유효한 HTTP 요청을 보냈는지 확인
+    // *** 유효 X -> error msg (유효하지 않음)
+    // *** 유효 O -> connection of proxy to web server(tiny) 자체적 설정 후, client object를 요청 (to server)
+
+
+    // *** server로부터의 response를 읽고
+    
+    
+    // *** client에 전달(forward the content of response to the client)
 }
