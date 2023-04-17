@@ -14,6 +14,8 @@ static const char *user_agent_hdr =
 void doit(int fd);
 void read_requesthdrs(rio_t *rp);
 void clienterror(int fd, char *cause, char *errnum, char *shortmsg, char *longmsg);
+void forward_requesthdrs(rio_t *rio_client, rio_t *rio_server);
+void serve(int fd, rio_t *rio_server);
 
 
 int main(int argc, char **argv) {                           // 첫 매개변수 argc는 옵션의 개수, argv는 옵션 문자열의 배열
@@ -56,50 +58,64 @@ void doit(int fd) {
     char host[MAXLINE] = "localhost";
     char port[MAXLINE] = "3000";
     int proxyfd;
-    char buf1[MAXLINE], buf2[MAXLINE], method[MAXLINE], uri[MAXLINE], version[MAXLINE];
-    rio_t rio_client, rio;
+    char buf[MAXLINE], buf2[MAXLINE], method[MAXLINE], uri[MAXLINE], version[MAXLINE];
+    rio_t rio_client, rio_server;
 
-    proxyfd = Open_clientfd(host, port);                    // new socket openning for proxy to server 'tiny' connection
+    // Open a new socket for the proxy to server connection
+    proxyfd = Open_clientfd(host, port);
+    if (proxyfd < 0) {
+        fprintf(stderr, "Error: Unable to connect to server\n");
+    }
     
-    Rio_readinitb(&rio_client, fd);                         // 클라이언트->proxy 버퍼에 연결 fd 연결
-    Rio_readinitb(&rio, proxyfd);                           // proxy->server 버퍼에 proxy fd 연결
+    // Initialize rio_client and rio_server for buffered I/O
+    Rio_readinitb(&rio_client, fd);
+    Rio_readinitb(&rio_server, proxyfd);
 
-    // *** request 전체 내용 읽어들이기
-    if (!Rio_readlineb(&rio_client, buf1, MAXLINE))
+    // Read the request line from the client
+    if (!Rio_readlineb(&rio_client, buf, MAXLINE)) {
+        Close(proxyfd);
         return;
-    
-    printf("%s", buf1);
-    sscanf(buf1, "%s %s %s", method, uri, version);
+    }
+    printf("%s", buf);
+    sscanf(buf, "%s %s %s", method, uri, version);
 
-    if (strcasecmp(method, "GET")) {                        // method가 GET이 아니면 -> 501 ERROR
+    // method가 GET이 아니면 -> 501 ERROR
+    if (strcasecmp(method, "GET")) {
         clienterror(fd, method, "501", "Not Implemented", "Tiny does not implement this method");
+        Close(proxyfd);
         return;
     }
 
-    read_requesthdrs(&rio_client);                                 // GET 요청이면 읽어들이고, 다른 요청이면 무시
-    
-    // *** request를 파싱 (-> static or dynamic 결정) => sequential에선 필요 X
-    /*
-    * pass on implementing sequential proxy server
-    */
+    // Read the request headers from the client and forward them to the server
+    read_requesthdrs(&rio_client);
+    Rio_writen(proxyfd, buf, strlen(buf));
+    forward_requesthdrs(&rio_client, &rio_server);
 
-    // *** client가 유효한 HTTP 요청을 보냈는지 확인 => 무조건 유효하다는 가정하에 유효 O일 때의 작업 코드화
-    // *** 유효 X -> error msg (유효하지 않음)
-    // *** 유효 O -> connection of proxy to web server(tiny) 자체적 설정 후, 
-    // client object를 요청 (to server)
-    
-
-
-    // *** server로부터의 response를 읽어들이기
-    if (!Rio_readlineb(&rio, buf2, MAXLINE))
+    // Forward the request body, if any, from the client to the server
+    if (strcmp(version, "HTTP/1.0") && strcmp(version, "HTTP/1.1")) {
+        fprintf(stderr, "Error: Invalid HTTP version\n");
+        Close(proxyfd);
         return;
+    }
+    if (Rio_readlineb(&rio_client, buf, MAXLINE) < 0) {
+        fprintf(stderr, "Error: Faild to read request body\n");
+        Close(proxyfd);
+        return;
+    }
+    while (strcmp(buf, "\r\n")) {
+        printf("is the fuckin infinite loop?\n");
+        Rio_writen(proxyfd, buf, strlen(buf));
+        Rio_readlineb(&rio_client, buf, MAXLINE);
+    }
+    printf("33333333333333333333333333333\n");
 
-    printf("%s", buf2);
-    sscanf(buf2, "%s %s %s", method, uri, version);
+    Rio_writen(proxyfd, buf, strlen(buf));
 
-    // *** 읽어들인 response를 client에 전달(forward the content of response to the client)
-    // serve_static, serve_dynamic에서의 작업과 유사하게 작동해야 함
-    // serve(fd, filename, filesize, cgiargs, method);
+    // Forward the response from the server to the client
+    serve(fd, &rio_server);
+
+    // Close the connection to the server
+    Close(proxyfd);
 }
 
 void read_requesthdrs(rio_t *rp) {
@@ -136,4 +152,23 @@ void clienterror(int fd, char *cause, char *errnum, char *shortmsg, char *longms
     Rio_writen(fd, buf, strlen(buf));
     sprintf(buf, "<hr><em>The Tiny Web server</em>\r\n");
     Rio_writen(fd, buf, strlen(buf));
+}
+
+void forward_requesthdrs(rio_t *rp_client, rio_t *rp_server) {
+    char buf[MAXLINE];
+    Rio_readlineb(rp_client, buf, MAXLINE);
+    while(strcmp(buf, "\r\n")) {
+        Rio_writen(rp_server->rio_fd, buf, strlen(buf));
+        Rio_readlineb(rp_client, buf, MAXLINE);
+    }
+    Rio_writen(rp_server->rio_fd, buf, strlen(buf));
+}
+
+void serve(int fd, rio_t *rp_server) {
+    char buf[MAXLINE];
+    int n;
+    while((n = Rio_readlineb(rp_server, buf, MAXLINE)) != 0) {
+        Rio_writen(fd, buf, n);
+        printf("Proxy received %d bytes from server\n", n);
+    }
 }
