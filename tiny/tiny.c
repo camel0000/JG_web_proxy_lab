@@ -160,8 +160,8 @@ int parse_uri(char *uri, char *filename, char *cgiargs) {
                 filename : ./home.html
             */
             strcat(filename, "home.html");
-        if (strstr(uri, "/mp4"))
-            strcpy(filename, "go.mp4");
+        else if (strcmp(uri, "/mp4") == 0)
+            strcpy(filename, "go.html");
         return 1;
     }
     /* Dynamic content */
@@ -261,7 +261,7 @@ void serve_dynamic(int fd, char *filename, char *cgiargs, char *method) { // cgi
         // QUERY_STRING="cgiargs가 가리키는 uri"
         setenv("QUERY_STRING", cgiargs, 1);
         // method를 cgi-bin/adder.c로 넘겨주기 위한 환경변수 setting
-        setenv("REQUEST_METHOD", method, 1);
+        // setenv("REQUEST_METHOD", method, 1);
 
         // dup2 : clientfd 출력을 CGI 프로그램 표준 출력과 연결
         Dup2(fd, STDOUT_FILENO);                    /* Redirect stdout to client */
