@@ -62,16 +62,14 @@ void doit(int fd) {
     char proxy_buf[MAXLINE], server_buf[MAXLINE], method[MAXLINE], uri[MAXLINE], version[MAXLINE];
     rio_t rio_client, rio_server;
 
-    /* Initialize rio_client and rio_server for buffered I/O */
-    Rio_readinitb(&rio_client, fd);
-
     /* Receive the request from client */
-    Rio_readlineb(&rio_client, proxy_buf, MAXLINE);         // client 요청을 읽고
-    sscanf(proxy_buf, "%s %s %s", method, uri, version);    // parsing
+    Rio_readinitb(&rio_client, fd);                         // initialize rio_client for buffered I/O
+    Rio_readlineb(&rio_client, proxy_buf, MAXLINE);         // read client request
+    sscanf(proxy_buf, "%s %s %s", method, uri, version);    // parse the request for each role
 
     printf("*** From Client ***\n");
     printf("Request headers:\n");
-    printf("%s", proxy_buf);
+    printf("%s", proxy_buf);                                // GET http://localhost:5684/home.html HTTP/1.1
 
     /* Only receive method "GET" */
     if (strcasecmp(method, "GET")) {
@@ -83,12 +81,12 @@ void doit(int fd) {
     parse_uri(uri, host, port, path);
 
     /* Forward the extracted info to the destination server */
-    socket_fd = Open_clientfd(host, port);
+    socket_fd = Open_clientfd(host, port);                  // open a new socket for the proxy to server connection
     sprintf(server_buf, "%s %s %s\r\n", method, path, version);
     printf("*** To Server ***\n");
     printf("%s\n", server_buf);
 
-    Rio_readinitb(&rio_server, socket_fd);
+    Rio_readinitb(&rio_server, socket_fd);                  // initialize rio_server for buffered I/O
     modify_http_header(server_buf, host, port, path, &rio_client);
     Rio_writen(socket_fd, server_buf, strlen(server_buf));
 
@@ -107,30 +105,36 @@ void doit(int fd) {
 void modify_http_header(char *http_header, char *hostname, int port, char *path, rio_t *rio_server) {
     char buf[MAXLINE], other_hdr[MAXLINE], host_hdr[MAXLINE];
 
-    sprintf(http_header, "GET %s HTTP/1.0\r\n", path);
+    sprintf(http_header, "GET %s HTTP/1.0\r\n", path);          // save "GET 'path' HTTP/1.0" on http_header buffer
 
+    /* Process of making modified request header */
     while (Rio_readlineb(rio_server, buf, MAXLINE) > 0) {
-        if (strcmp(buf, "\r\n") == 0)
+        if (strcmp(buf, "\r\n") == 0)                           // mean end of the buffer(empty line)
             break;
         
-        if (!strncasecmp(buf, "Host", strlen("Host"))) {
-            strcpy(host_hdr, buf);
+        if (!strncasecmp(buf, "Host", strlen("Host"))) {        // if found "Host" header
+            strcpy(host_hdr, buf);                              // copy & paste the "Host" header line on host_hdr buffer
             continue;
         }
 
+        // if not found "Connection" & "Proxy-Connection" & "User-Agent"
         if (strncasecmp(buf, "Connection", strlen("Connection")) && strncasecmp(buf, "Proxy-Connection", strlen("Proxy-Connection")) && strncasecmp(buf, "User-Agent", strlen("User-Agent"))) {
-            strcat(other_hdr, buf);
+            strcat(other_hdr, buf);                             // add the line on other_hdr buffer
         }
     }
 
-    if (strlen(host_hdr) == 0) {
-        sprintf(host_hdr, "Host: %s:%d\r\n", hostname, port);
+    if (strlen(host_hdr) == 0) {                                // if host_hdr is empty
+        sprintf(host_hdr, "Host: %s:%d\r\n", hostname, port);   // save "Host: 'hostname':'port'" on host_hdr buffer
     }
 
+    // save the contents of request header for sending to server
     sprintf(http_header, "%s%s%s%s%s%s%s", http_header, host_hdr, "Connection: close\r\n", "Proxy-Connection: close\r\n", user_agent_hdr, other_hdr, "\r\n");
     return;
 }
 
+/*
+* parse_uri - Extract info of destination host and port from request
+*/
 void parse_uri(char *uri, char *host, char *port, char *path) {
     char *ptr = strstr(uri, "//");
     ptr = ptr != NULL ? ptr + 2 : uri;
