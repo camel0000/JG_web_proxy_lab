@@ -13,7 +13,7 @@ void read_requesthdrs(rio_t *rp);
 int parse_uri(char *uri, char *filename, char *cgiargs);
 void serve_static(int fd, char *filename, int filesize, char *method);
 void get_filetype(char *filename, char *filetype);
-void serve_dynamic(int fd, char *filename, char *cgiargs, char *method);
+void serve_dynamic(int fd, char *filename, char *cgiargs);
 void clienterror(int fd, char *cause, char *errnum, char *shortmsg, char *longmsg);
 
 // ./tiny 5684
@@ -112,7 +112,7 @@ void doit(int fd) {
             return;
         }
         // 일반 파일이며, 실행 가능 -> 파일 제공
-        serve_dynamic(fd, filename, cgiargs, method);
+        serve_dynamic(fd, filename, cgiargs);
     }
 }
 /* $end doit */
@@ -198,7 +198,7 @@ void serve_static(int fd, char *filename, int filesize, char *method) {
 
     /* Send response headers to client */
     get_filetype(filename, filetype);
-    sprintf(buf, "HTTP/1.0 200 OK\r\n");
+    sprintf(buf, "HTTP/1.1 200 OK\r\n");
     Rio_writen(fd, buf, strlen(buf));
     sprintf(buf, "Server: Tiny Web Server\r\n");
     Rio_writen(fd, buf, strlen(buf));
@@ -246,7 +246,7 @@ void get_filetype(char *filename, char *filetype) {
  * CGI 자식 프로세스를 fork, 그 프로세스의 표준 출력을 client 출력과 연결
  */
 /* $begin serve_dynamic */
-void serve_dynamic(int fd, char *filename, char *cgiargs, char *method) { // cgiargs는 uri 정보가 담겨있는 곳을 가리킴
+void serve_dynamic(int fd, char *filename, char *cgiargs) { // cgiargs는 uri 정보가 담겨있는 곳을 가리킴
     char buf[MAXLINE], *emptylist[] = { NULL };
 
     /* Return first part of HTTP response */

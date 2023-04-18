@@ -16,7 +16,7 @@ void parse_uri(char *uri, char *host, char *port, char *path);
 void clienterror(int fd, char *cause, char *errnum, char *shortmsg, char *longmsg);
 
 
-int main(int argc, char **argv) {
+int main(int argc, char **argv) {                           // 첫 매개변수 argc는 옵션의 개수, argv는 옵션 문자열의 배열
     int listenfd, connfd;
     char hostname[MAXLINE], port[MAXLINE];
     socklen_t clientlen;
@@ -62,8 +62,12 @@ void doit(int fd) {
     char proxy_buf[MAXLINE], server_buf[MAXLINE], method[MAXLINE], uri[MAXLINE], version[MAXLINE];
     rio_t rio_client, rio_server;
 
+    /* Open a new socket for the proxy to server connection */
+    
+    
     /* Initialize rio_client and rio_server for buffered I/O */
     Rio_readinitb(&rio_client, fd);
+    
 
     /* Receive the request from client */
     Rio_readlineb(&rio_client, proxy_buf, MAXLINE);         // client 요청을 읽고
@@ -72,9 +76,12 @@ void doit(int fd) {
     printf("*** From Client ***\n");
     printf("Request headers:\n");
     printf("%s", proxy_buf);
+    // Rio_writen(socket_fd, proxy_buf, strlen(proxy_buf));
 
     /* Only receive method "GET" */
     if (strcasecmp(method, "GET")) {
+        // clienterror(fd, method, "501", "Not Implemented", "Proxy does not implement this method");
+        // Close(socket_fd);
         printf("Proxy does not implement the method\n");
         return;
     }
@@ -82,28 +89,35 @@ void doit(int fd) {
     /* Extract info of destination host and port from request */
     parse_uri(uri, host, port, path);
 
+
+
     /* Forward the extracted info to the destination server */
     socket_fd = Open_clientfd(host, port);
     sprintf(server_buf, "%s %s %s\r\n", method, path, version);
     printf("*** To Server ***\n");
     printf("%s\n", server_buf);
 
+    // while (strcmp(proxy_buf, "\r\n")) {
+    //     Rio_readlineb(&rio_client, proxy_buf, MAXLINE);
+    //     printf("%s", proxy_buf);
+    //     Rio_writen(socket_fd, proxy_buf, strlen(proxy_buf));
+    // }
     Rio_readinitb(&rio_server, socket_fd);
     modify_http_header(server_buf, host, port, path, &rio_client);
     Rio_writen(socket_fd, server_buf, strlen(server_buf));
 
+
+
     /* Return the response from server to the client */
     size_t n;
     while ((n = Rio_readlineb(&rio_server, server_buf, MAXLINE)) != 0) {
+        // printf("%s\n", server_buf);
         printf("Proxy received %d bytes from server\n", n);
         Rio_writen(fd, server_buf, n);
     }
     Close(socket_fd);
 }
 
-/*
-* modify_http_header - Modifying the info, extracted from client request, to HTTP request header for dest server
-*/
 void modify_http_header(char *http_header, char *hostname, int port, char *path, rio_t *rio_server) {
     char buf[MAXLINE], other_hdr[MAXLINE], host_hdr[MAXLINE];
 
