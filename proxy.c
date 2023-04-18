@@ -13,14 +13,14 @@ static const char *user_agent_hdr =
 void doit(int fd);
 void modify_http_header(char *http_header, char *hostname, int port, char *path, rio_t *rio_server);
 void parse_uri(char *uri, char *host, char *port, char *path);
-void clienterror(int fd, char *cause, char *errnum, char *shortmsg, char *longmsg);
-
+void *thread(void *vargp);
 
 int main(int argc, char **argv) {
-    int listenfd, connfd;
+    int listenfd, *connfd;
     char hostname[MAXLINE], port[MAXLINE];
     socklen_t clientlen;
     struct sockaddr_storage clientaddr;
+    pthread_t tid;
 
     /* Check command line args */
     if (argc != 2) {
@@ -35,20 +35,11 @@ int main(int argc, char **argv) {
     while (1) {
         clientlen = sizeof(clientaddr);
 
-        /* 반복적 연결 요청 접수 */
-        // Accept(듣기 식별자, 소켓 주소 구조체 주소, 해당 주소 길이)
-        connfd = Accept(listenfd, (SA *)&clientaddr, &clientlen);
-
-        // Getaddrinfo => 호스트 이름: 호스트 주소, 서비스 이름: 포트 번호의 스트링 표시를 소켓 주소 구조체로 변환
-        // Getnameinfo => 위의 Getaddrinfo의 반대로, 소켓 주소 구조체 -> 스트링 표시로 변환
-        Getnameinfo((SA *) &clientaddr, clientlen, hostname, MAXLINE, port, MAXLINE, 0);
-        printf("Accepted connection from (%s, %s)\n", hostname, port);
-        
-        /* 트랜잭션 수행 */
-        doit(connfd);
-        /* 트랜잭션이 수행된 후, 자신 쪽의 소켓을 닫음 */
-        Close(connfd);
+        connfd = Malloc(sizeof(int));
+        *connfd = Accept(listenfd, (SA *)&clientaddr, &clientlen);
+        Pthread_create(&tid, NULL, thread, connfd);
     }
+
     printf("%s", user_agent_hdr);
     return 0;
 }
@@ -152,4 +143,13 @@ void parse_uri(char *uri, char *host, char *port, char *path) {
     }
     strcpy(path, path_ptr);
     return;
+}
+
+void *thread(void *vargp) {
+    int connfd = *((int *)vargp);
+    Pthread_detach(pthread_self());
+    Free(vargp);
+    doit(connfd);
+    Close(connfd);
+    return NULL;
 }
