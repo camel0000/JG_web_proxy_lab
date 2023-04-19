@@ -28,7 +28,7 @@ void modify_http_header(char *http_header, char *hostname, int port, char *path,
 void parse_uri(char *uri, char *host, char *port, char *path);
 void *thread(void *vargp);
 
-cache_node *find_cache();       // return NULL or found location pointer
+cache_node *find_cache(cache *_cache, char *file_path);                                     // return NULL or found location pointer
 void insert_cache(cache *_cache, char *file_path, char *content, int content_length);       // if none hit -> call insert_cache()
 void delete_cache();
 void hit_cache();
@@ -203,7 +203,7 @@ void *thread(void *vargp) {
 cache_node *find_cache(cache *_cache, char *file_path) {
     for (cache_node *p = _cache->header; p->next != NULL; p = p->next) {
         if (p->file_path == file_path) {
-            hit_cache();
+            hit_cache(_cache, p);
             return p;
         }
     }
@@ -247,6 +247,16 @@ void delete_cache() {
 
 }
 
-void hit_cache() {
+void hit_cache(cache *_cache, cache_node *hit_p) {
+    cache_node *p = hit_p;
 
+    if (p == _cache->header) {         // hit_p == _cache->header
+
+    }
+    else if (p == _cache->trailer) {    // hit_p == _cache->trailer
+
+    }
+    else {          // hit_p is in the middle of the list
+        
+    }
 }
