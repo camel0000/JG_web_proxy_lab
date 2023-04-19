@@ -22,7 +22,7 @@ typedef struct {
     int total_size;
 } cache;
 
-cache *_cache;
+static cache *_cache;
 
 void doit(int fd);
 void modify_http_header(char *http_header, char *hostname, int port, char *path, rio_t *rio_server);
@@ -69,7 +69,6 @@ int main(int argc, char **argv) {
 }
 
 void doit(int fd) {
-    // doit 호출 -> main에서 연결이 되었고, request를 accept한 대로 transaction 수행을 해야한다는 것
     char host[MAXLINE];
     char port[MAXLINE];
     char path[MAXLINE];
@@ -100,7 +99,7 @@ void doit(int fd) {
 
     cache_node *tmp = find_cache(_cache, cache_path);
 
-    if (tmp != NULL) {                                          // forward to client the response in cache
+    if (tmp != NULL) {                                      // forward to client the response in cache
         Rio_writen(fd, tmp->content, tmp->content_length);
         return; 
     }
@@ -111,32 +110,23 @@ void doit(int fd) {
     printf("*** To Server ***\n");
     printf("%s\n", server_buf);
 
-    Rio_readinitb(&rio_server, socket_fd);                  // initialize rio_server for buffered I/O
+    Rio_readinitb(&rio_server, socket_fd);                      // initialize rio_server for buffered I/O
     modify_http_header(server_buf, host, port, path, &rio_client);
     Rio_writen(socket_fd, server_buf, strlen(server_buf));
 
     /* Return the response from server to the client */
-    // size_t n;
-    // while ((n = Rio_readlineb(&rio_server, server_buf, MAXLINE)) != 0) {
-    //     printf("Proxy received %d bytes from server\n", n);
-    //     Rio_writen(fd, server_buf, n);
-    // }
-
-
     char *tmp_buf = (char *)Malloc(MAX_OBJECT_SIZE);
     strcpy(tmp_buf, "");
-
     size_t n;
     while ((n = Rio_readlineb(&rio_server, server_buf, MAXLINE)) != 0) {
         printf("Proxy received %d bytes from server\n", n);
         Rio_writen(fd, server_buf, n);
         strcat(tmp_buf, server_buf);
     }
-    insert_cache(_cache, cache_path, tmp_buf, strlen(tmp_buf));
-    
 
-    printf("cache_header: %s\n", _cache->header->file_path);
-    printf("cache_content: %s\n", _cache->header->content);
+    /* Save the cache */
+    insert_cache(_cache, cache_path, tmp_buf, strlen(tmp_buf));
+
     Close(socket_fd);
 }
 
@@ -205,14 +195,12 @@ void *thread(void *vargp) {
 }
 
 /*
-* hit 여부 확인
-* hit 했을 시, hit_cache() 호출
-* hit 못 했을 시, NULL 반환
+* find_cache - check which the new node is hit on the cache list or not
+*              if hit, call hit_cache() and move the node on the first location
+*              if miss, return NULL
 */
 cache_node *find_cache(cache *_cache, char *file_path) {
-    printf("cache_header: %p\n", _cache->header);
     for (cache_node *p = _cache->header; p != NULL; p = p->next) {
-        printf("file_path: %s, cache_paht: %s\n", file_path, p->file_path);
         if (strcmp(p->file_path, file_path) == 0) {
             hit_cache(_cache, p);
             return p;
@@ -222,8 +210,7 @@ cache_node *find_cache(cache *_cache, char *file_path) {
 }
 
 /*
-* find_cache()를 통해서 cache에 저장된 같은 response가 없는 것을 확인한 뒤,
-* cache list에 insert되는 new_node가 리스트의 가장 앞(header 노드)으로 와야함
+* insert_cache - make new_node and insert it in to the first location of the cache list
 */
 void insert_cache(cache *_cache, char *file_path, char *content, int content_length) {
     cache_node *new_node = (cache_node *)Malloc(sizeof(cache_node));
@@ -232,27 +219,28 @@ void insert_cache(cache *_cache, char *file_path, char *content, int content_len
     new_node->content_length = content_length;
     new_node->prev = new_node->next = NULL;
 
-    if (new_node->content_length > MAX_OBJECT_SIZE) return;     // 해당 버퍼 폐기
+    if (new_node->content_length > MAX_OBJECT_SIZE) return;     // do not save the new_node(buffer)
 
     while (_cache->total_size + new_node->content_length > MAX_CACHE_SIZE) {
         delete_cache(_cache);
     }
 
-    /* 가장 앞 노드로 연결(insert)하기 */
-    if (_cache->header == NULL) {                       // nothing in cache list
-        // new_node->prev = _cache->header;
-        // new_node->next = _cache->trailer;
+    /* move new cache node to the header location */
+    if (_cache->header == NULL) {                               // nothing in cache list
         _cache->header = new_node;
         _cache->trailer = new_node;
     }
-    else {                                              // something in cache list (normal case)
+    else {                                                      // something in cache list (normal case)
         _cache->header->prev = new_node;
         new_node->next = _cache->header;
         _cache->header = new_node;
     }
-    _cache->total_size += new_node->content_length;     // renew total_size
+    _cache->total_size += new_node->content_length;             // renew total_size
 }
 
+/*
+* delete_cache - delete and free the last cache_node & move trailer pointer to new last cache_node
+*/
 void delete_cache(cache *_cache) {
     cache_node *del_node = _cache->trailer;
 
@@ -270,7 +258,7 @@ void delete_cache(cache *_cache) {
 void hit_cache(cache *_cache, cache_node *hit_p) {
     cache_node *p = hit_p;
 
-    if (p == _cache->header) {         // hit_p == _cache->header
+    if (p == _cache->header) {          // hit_p == _cache->header
         return;
     }
     else if (p == _cache->trailer) {    // hit_p == _cache->trailer
@@ -281,7 +269,7 @@ void hit_cache(cache *_cache, cache_node *hit_p) {
         p->prev = NULL;
         _cache->header = p;
     }
-    else {          // hit_p is in the middle of the list
+    else {                              // hit_p is in the middle of the list
         p->prev->next = p->next;
         p->next->prev = p->prev;
         p->prev = NULL;
