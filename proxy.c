@@ -10,17 +10,40 @@ static const char *user_agent_hdr =
     "User-Agent: Mozilla/5.0 (X11; Linux x86_64; rv:10.0.3) Gecko/20120305 "
     "Firefox/10.0.3\r\n";
 
+typedef struct cache_node {
+    char *file_path;
+    char *content;  // response_header + content
+    int content_length;
+    cache_node *prev, *next;
+} cache_node;
+
+typedef struct {
+    cache_node *header, *trailer;
+    int total_size;
+} cache;
+
+
 void doit(int fd);
 void modify_http_header(char *http_header, char *hostname, int port, char *path, rio_t *rio_server);
 void parse_uri(char *uri, char *host, char *port, char *path);
 void *thread(void *vargp);
 
+cache_node *find_cache();       // return NULL or found location pointer
+void insert_cache(cache *_cache, char *file_path, char *content, int content_length);       // if none hit -> call insert_cache()
+void delete_cache();
+void hit_cache();
+
+
 int main(int argc, char **argv) {
-    int listenfd, *connfd;
+    int listenfd, *connfdp;
     char hostname[MAXLINE], port[MAXLINE];
     socklen_t clientlen;
     struct sockaddr_storage clientaddr;
     pthread_t tid;
+
+    cache *_cache = Malloc(sizeof(cache));
+    _cache->header = _cache->trailer = NULL;
+    _cache->total_size = 0;
 
     /* Check command line args */
     if (argc != 2) {
@@ -35,9 +58,9 @@ int main(int argc, char **argv) {
     while (1) {
         clientlen = sizeof(clientaddr);
 
-        connfd = Malloc(sizeof(int));
-        *connfd = Accept(listenfd, (SA *)&clientaddr, &clientlen);
-        Pthread_create(&tid, NULL, thread, connfd);
+        connfdp = Malloc(sizeof(int));
+        *connfdp = Accept(listenfd, (SA *)&clientaddr, &clientlen);
+        Pthread_create(&tid, NULL, thread, connfdp);
     }
 
     printf("%s", user_agent_hdr);
@@ -57,6 +80,8 @@ void doit(int fd) {
     Rio_readinitb(&rio_client, fd);                         // initialize rio_client for buffered I/O
     Rio_readlineb(&rio_client, proxy_buf, MAXLINE);         // read client request
     sscanf(proxy_buf, "%s %s %s", method, uri, version);    // parse the request for each role
+
+//
 
     printf("*** From Client ***\n");
     printf("Request headers:\n");
@@ -168,4 +193,60 @@ void *thread(void *vargp) {
     doit(connfd);
     Close(connfd);
     return NULL;
+}
+
+/*
+* hit 여부 확인
+* hit 했을 시, hit_cache() 호출
+* hit 못 했을 시, NULL 반환
+*/
+cache_node *find_cache(cache *_cache, char *file_path) {
+    for (cache_node *p = _cache->header; p->next != NULL; p = p->next) {
+        if (p->file_path == file_path) {
+            hit_cache();
+            return p;
+        }
+    }
+    return NULL;
+}
+
+/*
+* find_cache()를 통해서 cache에 저장된 같은 response가 없는 것을 확인한 뒤,
+* cache list에 insert되는 new_node가 리스트의 가장 앞(header 노드)으로 와야함
+*/
+void insert_cache(cache *_cache, char *file_path, char *content, int content_length) {
+    cache_node *new_node = Malloc(sizeof(cache_node));
+    new_node->file_path = file_path;
+    new_node->content = content;
+    new_node->content_length = content_length;
+    new_node->prev = new_node->next = NULL;
+
+    if (new_node->content_length > MAX_OBJECT_SIZE) return;     // 해당 버퍼 폐기
+
+    if (_cache->total_size + new_node->content_length > MAX_CACHE_SIZE) {
+        while (_cache->total_size + new_node->content_length > MAX_CACHE_SIZE) {
+            delete_cache();
+        }
+    }
+
+    /* 가장 앞 노드로 연결(insert)하기 */
+    if (_cache->header == NULL) {           // nothing in cache list
+        new_node->prev = _cache->header;
+        new_node->next = _cache->trailer;
+        _cache->header = new_node;
+        _cache->trailer = new_node;
+    }
+    else {                                  // something in cache list (normal case)
+        _cache->header->prev = new_node;
+        new_node->next = _cache->header;
+        _cache->header = new_node;
+    }
+}
+
+void delete_cache() {
+
+}
+
+void hit_cache() {
+
 }
