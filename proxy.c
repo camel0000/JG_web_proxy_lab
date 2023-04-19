@@ -68,6 +68,11 @@ void doit(int fd) {
         return;
     }
 
+    /* client로부터 받은 요청이 캐시에 이미 있는지 검색 */
+    /* 있다면 바로 client에 response 돌려주고 return */
+
+
+
     /* Extract info of destination host and port from request */
     parse_uri(uri, host, port, path);
 
@@ -81,12 +86,23 @@ void doit(int fd) {
     modify_http_header(server_buf, host, port, path, &rio_client);
     Rio_writen(socket_fd, server_buf, strlen(server_buf));
 
+    /* 캐시에 자리가 있는 지 확인 */
+    /* 캐시에 자리가 없으면 -> 근사 LRU 알고리즘에 의해 가장 오래된 캐시 삭제 */
+
+    
+    /* 서버로부터 받은 response를 캐시에 저장 */
+
+
+
     /* Return the response from server to the client */
     size_t n;
     while ((n = Rio_readlineb(&rio_server, server_buf, MAXLINE)) != 0) {
         printf("Proxy received %d bytes from server\n", n);
         Rio_writen(fd, server_buf, n);
     }
+
+    
+
     Close(socket_fd);
 }
 
